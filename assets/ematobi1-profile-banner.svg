@@ -1,4 +1,4 @@
-<svg width="800" height="200" viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Emmanuel Terry Tobi, Senior DevOps / DevSecOps Engineer">
+<svg width="800" height="200" viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Emmanuel Tobi, Senior DevOps / DevSecOps Engineer">
   <defs>
     <radialGradient id="emberGlow" cx="0.15" cy="0.2" r="1.6">
       <stop offset="0%" stop-color="#520806" stop-opacity="0.95"/>
@@ -75,8 +75,8 @@
 
   <g text-anchor="middle" opacity="0">
     <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.545;0.58;0.96;1" dur="12s" repeatCount="indefinite"/>
-    <text x="400" y="150" font-family="Impact, 'Arial Black', sans-serif" font-size="38" fill="url(#chrome)" stroke="#44475a" stroke-width="0.6">Emmanuel &#8220;Terry&#8221; Tobi</text>
-    <text x="400" y="150" font-family="Impact, 'Arial Black', sans-serif" font-size="38" fill="url(#shine)">Emmanuel &#8220;Terry&#8221; Tobi</text>
+    <text x="400" y="150" font-family="Impact, 'Arial Black', sans-serif" font-size="38" fill="url(#chrome)" stroke="#44475a" stroke-width="0.6">Emmanuel Tobi</text>
+    <text x="400" y="150" font-family="Impact, 'Arial Black', sans-serif" font-size="38" fill="url(#shine)">Emmanuel Tobi</text>
     <text x="400" y="180" font-family="'Courier New', Consolas, monospace" font-size="15" fill="#8be9fd" opacity="0">Senior DevOps / DevSecOps Engineer &#183; 10+ yrs
       <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.6;0.64;1" dur="12s" repeatCount="indefinite"/>
     </text>

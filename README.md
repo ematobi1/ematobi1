@@ -1,7 +1,7 @@
 <p align="center">
-  <img src="assets/ematobi1-profile-banner.svg" alt="Animated terminal banner for Emmanuel Terry Tobi, Senior DevOps / DevSecOps Engineer">
+  <img src="assets/ematobi1-profile-banner.svg" alt="Animated terminal banner for Emmanuel Tobi, Senior DevOps / DevSecOps Engineer">
 </p>
-<h1 align="center">Emmanuel (Terry) Tobi</h1>
+<h1 align="center">Emmanuel Tobi</h1>
 <p align="center">
   <a href="https://zerodowntobi.online">Portfolio</a> · <a href="https://linkedin.com/in/emmanuel-t-52a040118">LinkedIn</a> · <a href="mailto:emma.tobi1@gmail.com">Email</a>
 </p>
