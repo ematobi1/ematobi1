@@ -1,0 +1,84 @@
+<svg width="800" height="200" viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Emmanuel Terry Tobi, Senior DevOps / DevSecOps Engineer">
+  <defs>
+    <radialGradient id="emberGlow" cx="0.15" cy="0.2" r="1.6">
+      <stop offset="0%" stop-color="#520806" stop-opacity="0.95"/>
+      <stop offset="45%" stop-color="#520806" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+      <animate attributeName="cx" values="0.15;0.4;0.85;0.6;0.15" dur="24s" repeatCount="indefinite"/>
+      <animate attributeName="cy" values="0.2;0.8;0.6;0.1;0.2" dur="24s" repeatCount="indefinite"/>
+    </radialGradient>
+
+    <radialGradient id="tideGlow" cx="0.85" cy="0.8" r="1.4">
+      <stop offset="0%" stop-color="#021D4A" stop-opacity="0.9"/>
+      <stop offset="55%" stop-color="#021D4A" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+      <animate attributeName="cx" values="0.85;0.6;0.15;0.4;0.85" dur="26s" repeatCount="indefinite"/>
+      <animate attributeName="cy" values="0.8;0.2;0.4;0.9;0.8" dur="26s" repeatCount="indefinite"/>
+    </radialGradient>
+
+    <linearGradient id="chrome" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#d8d8e0"/>
+      <stop offset="50%" stop-color="#8a8a99"/>
+      <stop offset="65%" stop-color="#c4c4cf"/>
+      <stop offset="100%" stop-color="#f8f8f2"/>
+    </linearGradient>
+
+    <linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="-160" y1="0" x2="-40" y2="0">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+      <animateTransform attributeName="gradientTransform" type="translate"
+        values="0 0;0 0;900 0;900 0" keyTimes="0;0.6;0.72;1" dur="12s" repeatCount="indefinite"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="200" fill="#000000"/>
+  <rect width="800" height="200" fill="url(#emberGlow)"/>
+  <rect width="800" height="200" fill="url(#tideGlow)"/>
+
+  <g font-family="'Courier New', Consolas, monospace">
+    <text x="20" y="28" font-size="14" fill="#50fa7b" opacity="0">ematobi1@github:~$
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.04;0.96;1" dur="12s" repeatCount="indefinite"/>
+    </text>
+    <text x="20" y="48" font-size="14" font-weight="bold" fill="#bd93f9" opacity="0">Loading ematobi1's profile...
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.07;0.11;0.96;1" dur="12s" repeatCount="indefinite"/>
+    </text>
+    <g font-size="11" fill="#6272a4">
+      <text x="20" y="68" opacity="0">&gt; terraform apply -auto-approve ... <tspan fill="#50fa7b">ok</tspan>
+        <animate attributeName="opacity" values="0;0;0.85;0.85;0" keyTimes="0;0.13;0.17;0.96;1" dur="12s" repeatCount="indefinite"/>
+      </text>
+      <text x="20" y="84" opacity="0">&gt; kubectl rollout status deploy/platform ... <tspan fill="#50fa7b">ok</tspan>
+        <animate attributeName="opacity" values="0;0;0.85;0.85;0" keyTimes="0;0.2;0.24;0.96;1" dur="12s" repeatCount="indefinite"/>
+      </text>
+      <text x="20" y="100" opacity="0">&gt; trivy image --severity HIGH,CRITICAL ... <tspan fill="#50fa7b">0 vulns</tspan>
+        <animate attributeName="opacity" values="0;0;0.85;0.85;0" keyTimes="0;0.27;0.31;0.96;1" dur="12s" repeatCount="indefinite"/>
+      </text>
+    </g>
+  </g>
+
+  <g font-family="Impact, 'Arial Black', sans-serif" font-size="38" text-anchor="middle" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.34;0.345;0.54;0.545;1" dur="12s" repeatCount="indefinite"/>
+    <text x="400" y="150" fill="#ff5555" opacity="0.85">EMMANUEL TOBI
+      <animate attributeName="x" values="400;394;403;397;406;400" dur="0.35s" repeatCount="indefinite"/>
+    </text>
+    <text x="400" y="150" fill="#8be9fd" opacity="0.85">EMMANUEL TOBI
+      <animate attributeName="x" values="400;405;396;404;395;400" dur="0.3s" repeatCount="indefinite"/>
+    </text>
+    <text x="400" y="150" fill="#50fa7b" opacity="0.7">EMMANUEL TOBI
+      <animate attributeName="x" values="400;398;402;399;401;400" dur="0.25s" repeatCount="indefinite"/>
+    </text>
+    <text x="400" y="150" fill="#ffffff">EMMANUEL TOBI
+      <animate attributeName="opacity" values="1;0.6;1;0.3;1" dur="0.4s" repeatCount="indefinite"/>
+    </text>
+  </g>
+
+  <g text-anchor="middle" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.545;0.58;0.96;1" dur="12s" repeatCount="indefinite"/>
+    <text x="400" y="150" font-family="Impact, 'Arial Black', sans-serif" font-size="38" fill="url(#chrome)" stroke="#44475a" stroke-width="0.6">Emmanuel &#8220;Terry&#8221; Tobi</text>
+    <text x="400" y="150" font-family="Impact, 'Arial Black', sans-serif" font-size="38" fill="url(#shine)">Emmanuel &#8220;Terry&#8221; Tobi</text>
+    <text x="400" y="180" font-family="'Courier New', Consolas, monospace" font-size="15" fill="#8be9fd" opacity="0">Senior DevOps / DevSecOps Engineer &#183; 10+ yrs
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.6;0.64;1" dur="12s" repeatCount="indefinite"/>
+    </text>
+  </g>
+</svg>
