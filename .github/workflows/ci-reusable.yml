@@ -148,6 +148,9 @@ jobs:
           ws_roots = {d for d in pkg_dirs if "pnpm-workspace.yaml" in files_by_dir[d]
                       or read_json(f"{d}/package.json").get("workspaces")}
           node_default = os.environ["NODE_DEFAULT"]
+          TEST_FILE = re.compile(r"\.(test|spec)\.(c|m)?(j|t)sx?$")
+          TEST_DIRS = {"__tests__", "test", "tests", "e2e", "cypress"}
+          notices = []
           node = []
           for d in sorted(pkg_dirs):
               own_lock = d in lock_dirs
@@ -169,7 +172,17 @@ jobs:
                       break
               version = pin if pin and pin[0].isdigit() else major_from_spec((pkg.get("engines") or {}).get("node", ""), node_default, int(node_default))
               test = scripts.get("test", "")
-              has_test = bool(test) and "no test specified" not in test
+              has_test_files = any(
+                  TEST_FILE.search(f) or any(part in TEST_DIRS for part in Path(td).parts)
+                  for td, tf in files_by_dir.items()
+                  if (d == "." or td == d or td.startswith(d + "/"))
+                  and not (td != d and Path(td, "package.json").exists() and td in lock_dirs)
+                  for f in tf
+                  if re.search(r"\.(c|m)?(j|t)sx?$", f)
+              )
+              has_test = bool(test) and "no test specified" not in test and has_test_files
+              if test and not has_test:
+                  notices.append(f"{d}: 'test' script present but no test files found — test step skipped")
               node.append({
                   "dir": d, "pm": pm,
                   "lock": f"{d}/{lock}" if lock else "",
@@ -311,7 +324,8 @@ jobs:
           docker = [{"file": f"{d}/{f}", "dir": d}
                     for d, fns in sorted(files_by_dir.items())
                     for f in sorted(fns)
-                    if f == "Dockerfile" or f.startswith("Dockerfile.") or f.endswith(".Dockerfile")]
+                    if (f == "Dockerfile" or f.startswith("Dockerfile.") or f.endswith(".Dockerfile"))
+                    and not re.search(r"\.(unused|bak|old|orig|disabled|example|sample|tmpl|template)$", f, re.I)]
           helm = [{"dir": d} for d, f in sorted(files_by_dir.items()) if "Chart.yaml" in f]
 
           out = {"node": node, "python": python, "go": go, "terraform": terraform, "docker": docker, "helm": helm}
@@ -323,6 +337,8 @@ jobs:
               for k, v in out.items():
                   paths = ", ".join(f"`{i.get('file', i['dir'])}`" for i in v) or "—"
                   s.write(f"| {k} | {len(v)} | {paths} |\n")
+          for n in notices:
+              print(f"::notice::{n}")
           print(json.dumps(out, indent=2))
 
   # -------------------------------------------------------------------------
