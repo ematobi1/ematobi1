@@ -223,7 +223,8 @@ jobs:
                       data = {}
                   proj = data.get("project") or {}
                   poetry = (data.get("tool") or {}).get("poetry") or {}
-                  installable = installable or bool(proj) or bool(poetry)
+                  # Poetry `package-mode = false` marks an application: deps only, nothing to install.
+                  installable = installable or bool(proj) or (bool(poetry) and poetry.get("package-mode", True) is not False)
                   name = norm(proj.get("name") or poetry.get("name") or "")
                   opt = proj.get("optional-dependencies") or {}
                   extras = [e for e in ("dev", "test", "tests", "testing", "ci") if e in opt]
