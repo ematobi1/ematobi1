@@ -186,7 +186,7 @@ jobs:
               node.append({
                   "dir": d, "pm": pm,
                   "lock": f"{d}/{lock}" if lock else "",
-                  "cache": pm if pm in ("npm", "yarn") and lock else "",
+                  "cache": "npm" if pm == "npm" and lock else "",
                   "node": version,
                   "lint": "lint" in scripts,
                   "typecheck": "typecheck" in scripts or "type-check" in scripts,
@@ -404,6 +404,10 @@ jobs:
       - name: Build
         if: matrix.unit.build
         timeout-minutes: 15
+        env:
+          # Lint is advisory unless strict: stop Create React App from
+          # promoting ESLint warnings to build errors under CI=true.
+          CI: ${{ inputs.strict && 'true' || 'false' }}
         run: ${{ matrix.unit.pm }} run build
 
   # -------------------------------------------------------------------------
