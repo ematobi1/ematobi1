@@ -52,6 +52,10 @@ on:
         description: Fallback Python version when the project does not pin one.
         type: string
         default: "3.12"
+      python-extra-packages:
+        description: Extra pip packages installed for every Python project (e.g. test-only deps).
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -180,14 +184,25 @@ jobs:
 
           # ---------------- Python ----------------
           py_default = os.environ["PY_DEFAULT"]
-          python = []
+          norm = lambda n: re.sub(r"[-_.]+", "-", n).lower()
+          REQ_RE = re.compile(r"requirements([-_.][\w.-]+)?\.txt")
+
+          def req_names(path):
+              names = []
+              for line in Path(path).read_text(encoding="utf-8", errors="ignore").splitlines():
+                  line = line.split("#")[0].strip()
+                  m = re.match(r"([A-Za-z0-9][A-Za-z0-9._-]*)", line)
+                  if m and not line.startswith("-"):
+                      names.append(norm(m.group(1)))
+              return names
+
+          units = []
           for d, fns in sorted(files_by_dir.items()):
-              reqs = sorted(f for f in fns if re.fullmatch(r"requirements([-_.][\w.-]+)?\.txt", f))
-              has_pp = "pyproject.toml" in fns
-              has_setup = "setup.py" in fns
+              reqs = sorted(f for f in fns if REQ_RE.fullmatch(f))
+              has_pp, has_setup = "pyproject.toml" in fns, "setup.py" in fns
               if not (reqs or has_pp or has_setup):
                   continue
-              installable, extras, requires = has_setup, [], ""
+              installable, extras, requires, name, deps = has_setup, [], "", "", []
               if has_pp:
                   try:
                       data = tomllib.loads(Path(d, "pyproject.toml").read_text(encoding="utf-8"))
@@ -196,31 +211,84 @@ jobs:
                   proj = data.get("project") or {}
                   poetry = (data.get("tool") or {}).get("poetry") or {}
                   installable = installable or bool(proj) or bool(poetry)
+                  name = norm(proj.get("name") or poetry.get("name") or "")
                   opt = proj.get("optional-dependencies") or {}
                   extras = [e for e in ("dev", "test", "tests", "testing", "ci") if e in opt]
                   requires = proj.get("requires-python", "")
+                  for spec in (proj.get("dependencies") or []) + [x for e in extras for x in opt[e]]:
+                      m = re.match(r"([A-Za-z0-9][A-Za-z0-9._-]*)", spec)
+                      if m:
+                          deps.append(norm(m.group(1)))
+                  deps += [norm(k) for k in (poetry.get("dependencies") or {})]
+              for r in reqs:
+                  deps += req_names(Path(d, r))
               if not installable and not reqs:
                   continue  # tooling-only pyproject
-              pin = ""
+              units.append({"dir": d, "reqs": reqs, "installable": installable, "extras": extras,
+                            "requires": requires, "name": name, "deps": deps, "has_pp": has_pp, "has_setup": has_setup})
+
+          local = {u["name"]: u for u in units if u["installable"] and u["name"]}
+
+          def local_closure(u, seen=None):
+              seen = set() if seen is None else seen
+              for dep in u["deps"]:
+                  lu = local.get(dep)
+                  if lu and lu["dir"] != u["dir"] and lu["dir"] not in seen:
+                      seen.add(lu["dir"])
+                      local_closure(lu, seen)
+              return seen
+
+          def has_tests(d):
+              return any(
+                  re.fullmatch(r"(test_.*|.*_test)\.py", f) or f == "conftest.py"
+                  for td, tf in files_by_dir.items() if d == "." or td == d or td.startswith(d + "/")
+                  for f in tf
+              )
+
+          def py_pin(d, requires):
               for cand in (d, "."):
                   p = Path(cand, ".python-version")
                   if p.is_file():
-                      pin = p.read_text().strip().splitlines()[0]
-                      break
-              if not pin:
-                  m = re.search(r">=\s*3\.(\d+)", requires)
-                  pin = f"3.{max(int(m.group(1)), int(py_default.split('.')[1]))}" if m else py_default
-              tests = any(
-                  re.fullmatch(r"(test_.*|.*_test)\.py", f) or f == "conftest.py"
-                  for td, tf in files_by_dir.items() if td == d or td.startswith(d + "/") or d == "."
-                  for f in tf
-              )
-              deps = [f"{d}/{r}" for r in reqs] + ([f"{d}/pyproject.toml"] if has_pp else []) + ([f"{d}/setup.py"] if has_setup else [])
+                      return p.read_text().strip().splitlines()[0]
+              m = re.search(r">=\s*3\.(\d+)", requires)
+              return f"3.{max(int(m.group(1)), int(py_default.split('.')[1]))}" if m else py_default
+
+          def root_pytest_config():
+              if any(Path(f).is_file() for f in ("pytest.ini", "conftest.py")):
+                  return True
+              for f, marker in (("pyproject.toml", "[tool.pytest"), ("setup.cfg", "[tool:pytest]"), ("tox.ini", "[pytest]")):
+                  if Path(f).is_file() and marker in Path(f).read_text(encoding="utf-8", errors="ignore"):
+                      return True
+              return False
+
+          def dep_files(u):
+              d = u["dir"]
+              return [f"{d}/{r}" for r in u["reqs"]] + ([f"{d}/pyproject.toml"] if u["has_pp"] else []) + ([f"{d}/setup.py"] if u["has_setup"] else [])
+
+          python = []
+          if len(units) > 1 and root_pytest_config():
+              # Workspace mode: the repo runs one test suite from the root, so
+              # install every local package + requirement set into one env.
+              root = next((u for u in units if u["dir"] == "."), None)
               python.append({
-                  "dir": d, "python": pin, "reqs": " ".join(reqs),
-                  "installable": installable, "extras": ",".join(extras),
-                  "tests": tests, "deps": "\n".join(deps),
+                  "dir": ".", "python": py_pin(".", root["requires"] if root else ""),
+                  "reqs": " ".join(f"{u['dir']}/{r}" for u in units for r in u["reqs"]),
+                  "installable": bool(root and root["installable"]),
+                  "extras": ",".join(root["extras"]) if root else "",
+                  "local": " ".join(u["dir"] for u in units if u["installable"] and u["dir"] != "."),
+                  "tests": True,
+                  "deps": "\n".join(f for u in units for f in dep_files(u)),
               })
+          else:
+              for u in units:
+                  python.append({
+                      "dir": u["dir"], "python": py_pin(u["dir"], u["requires"]),
+                      "reqs": " ".join(u["reqs"]), "installable": u["installable"],
+                      "extras": ",".join(u["extras"]),
+                      "local": " ".join(sorted(local_closure(u))),
+                      "tests": has_tests(u["dir"]),
+                      "deps": "\n".join(dep_files(u)),
+                  })
 
           # ---------------- Go ----------------
           go = [{"dir": d, "sum": "go.sum" in f} for d, f in sorted(files_by_dir.items()) if "go.mod" in f]
@@ -355,6 +423,7 @@ jobs:
           source "$RUNNER_TEMP/venv/bin/activate"
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
           python -m pip install -U pip wheel
+          for l in ${{ matrix.unit.local }}; do pip install -e "$GITHUB_WORKSPACE/$l"; done
           for r in ${{ matrix.unit.reqs }}; do pip install -r "$r"; done
           if [ "${{ matrix.unit.installable }}" = "true" ]; then
             extras="${{ matrix.unit.extras }}"
@@ -362,7 +431,7 @@ jobs:
             else pip install -e . || pip install .
             fi
           fi
-          pip install pytest ruff
+          pip install pytest ruff ${{ inputs.python-extra-packages }}
 
       - name: Byte-compile (syntax check)
         run: python -m compileall -q -x '(node_modules|\.venv|/venv/)' .
