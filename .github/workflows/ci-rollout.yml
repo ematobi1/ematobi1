@@ -87,11 +87,14 @@ jobs:
             if gh api "repos/$full/git/ref/heads/$BRANCH" >/dev/null 2>&1; then
               note "$repo" "rollout PR already pending"; continue
             fi
-            run gh api -X POST "repos/$full/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$sha" >/dev/null
-            run gh api -X PUT "repos/$full/contents/$WF_PATH" \
-              -f message="ci: add PR Validation pipeline" -f content="$template_b64" -f branch="$BRANCH" >/dev/null
+            if ! { run gh api -X POST "repos/$full/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$sha" >/dev/null &&
+                   run gh api -X PUT "repos/$full/contents/$WF_PATH" \
+                     -f message="ci: add PR Validation pipeline" -f content="$template_b64" -f branch="$BRANCH" >/dev/null; }; then
+              note "$repo" "FAILED to push rollout branch"; continue
+            fi
             run gh api -X POST "repos/$full/pulls" -f title="ci: add PR Validation pipeline" \
               -f head="$BRANCH" -f base="$default" \
-              -f body="Adds the shared Ubuntu CI pipeline (build, test, typecheck, IaC validation, secret scan). Once merged, the \`Require CI Gate\` ruleset is applied so nothing reaches \`$default\` without a green **PR Validation / CI Gate** check." >/dev/null
+              -f body="Adds the shared Ubuntu CI pipeline (build, test, typecheck, IaC validation, secret scan). Once merged and the default branch is green, the \`Require CI Gate\` ruleset is applied so nothing reaches \`$default\` without a green **PR Validation / CI Gate** check." >/dev/null \
+              || { note "$repo" "FAILED to open PR"; continue; }
             note "$repo" "rollout PR opened"
           done
