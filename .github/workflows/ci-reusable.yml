@@ -1,0 +1,568 @@
+# ---------------------------------------------------------------------------
+# Reusable PR Validation pipeline (Ubuntu 24.04)
+#
+# Called by `.github/workflows/pr-validation.yml` in every ematobi1 repository:
+#
+#   jobs:
+#     validate:
+#       uses: ematobi1/ematobi1/.github/workflows/ci-reusable.yml@v1
+#
+# The pipeline auto-detects every project in the repository (monorepos
+# included) and validates each one in isolation:
+#
+#   Node.js    install (lockfile-aware: npm / yarn / pnpm), typecheck, test, build
+#   Python     install, byte-compile, pytest
+#   Go         build, test (-race)
+#   Terraform  init (no backend), validate
+#   Docker     image build (no push)
+#   Helm       lint
+#   Security   gitleaks secret scan on the changed commits, Trivy vuln scan
+#
+# Gate policy
+#   Blocking  : install, build, typecheck, tests, terraform validate,
+#               docker build, helm lint, secret scan
+#   Advisory  : lint, go vet, terraform fmt, Trivy CVEs
+#               (flip `strict: true` in the caller to make them blocking)
+#
+# A single check, "CI Gate", summarises everything. Branch rulesets require
+# that check, so nothing reaches the default branch until it is green.
+# ---------------------------------------------------------------------------
+name: CI (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      strict:
+        description: Make advisory checks (lint, vet, fmt, CVEs) blocking.
+        type: boolean
+        default: false
+      skip-paths:
+        description: Newline-separated path prefixes / globs to exclude from detection.
+        type: string
+        default: ""
+      run-docker:
+        description: Build Dockerfiles found in the repository.
+        type: boolean
+        default: true
+      node-version:
+        description: Fallback Node.js version when the project does not pin one.
+        type: string
+        default: "22"
+      python-version:
+        description: Fallback Python version when the project does not pin one.
+        type: string
+        default: "3.12"
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+  FORCE_COLOR: "1"
+  HUSKY: "0"
+  NEXT_TELEMETRY_DISABLED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  # -------------------------------------------------------------------------
+  detect:
+    name: Detect projects
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      node: ${{ steps.scan.outputs.node }}
+      python: ${{ steps.scan.outputs.python }}
+      go: ${{ steps.scan.outputs.go }}
+      terraform: ${{ steps.scan.outputs.terraform }}
+      docker: ${{ steps.scan.outputs.docker }}
+      helm: ${{ steps.scan.outputs.helm }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - id: scan
+        name: Scan repository
+        env:
+          SKIP_PATHS: ${{ inputs.skip-paths }}
+          NODE_DEFAULT: ${{ inputs.node-version }}
+          PY_DEFAULT: ${{ inputs.python-version }}
+        shell: python3 {0}
+        run: |
+          import fnmatch, json, os, re, tomllib
+          from pathlib import Path
+
+          EXCLUDED_DIRS = {
+              "node_modules", "vendor", "dist", "build", "out", "coverage",
+              "venv", "env", "site-packages", "__pycache__", "third_party",
+              "bower_components", "target", "cdk.out",
+          }
+          skips = [s.strip().strip("/") for s in os.environ.get("SKIP_PATHS", "").splitlines() if s.strip()]
+
+          def skipped(rel: str) -> bool:
+              return any(rel == s or rel.startswith(s + "/") or fnmatch.fnmatch(rel, s) for s in skips)
+
+          files_by_dir: dict[str, list[str]] = {}
+          for dp, dns, fns in os.walk("."):
+              dns[:] = sorted(d for d in dns if d not in EXCLUDED_DIRS and not d.startswith("."))
+              rel = os.path.normpath(dp)
+              if skipped(rel):
+                  dns[:] = []
+                  continue
+              files_by_dir[rel] = fns
+
+          def ancestors(d: str):
+              p = Path(d)
+              while str(p) != ".":
+                  p = p.parent
+                  yield str(p)
+
+          def read_json(p):
+              try:
+                  return json.loads(Path(p).read_text(encoding="utf-8"))
+              except Exception:
+                  return {}
+
+          def major_from_spec(spec: str, default: str, floor: int) -> str:
+              """Pick a concrete major version satisfying common engine specs."""
+              spec = (spec or "").strip()
+              if not spec:
+                  return default
+              if re.fullmatch(r"\d+(\.\d+)*(\.x)?", spec):
+                  return spec.split(".")[0]
+              nums = [int(n) for n in re.findall(r"(?<![\d.])(\d+)(?:\.\d+)*", spec)]
+              lo = nums[0] if nums else floor
+              if "<" in spec and len(nums) >= 2 and nums[-1] <= floor:
+                  return str(nums[-1] - 1 if nums[-1] > lo else lo)
+              return str(max(lo, floor)) if ">" in spec or "^" in spec or "~" in spec else str(lo)
+
+          # ---------------- Node.js ----------------
+          LOCKS = {"pnpm-lock.yaml": "pnpm", "yarn.lock": "yarn", "package-lock.json": "npm"}
+          pkg_dirs = {d for d, f in files_by_dir.items() if "package.json" in f}
+          lock_dirs = {d for d, f in files_by_dir.items() if any(l in f for l in LOCKS)}
+          ws_roots = {d for d in pkg_dirs if "pnpm-workspace.yaml" in files_by_dir[d]
+                      or read_json(f"{d}/package.json").get("workspaces")}
+          node_default = os.environ["NODE_DEFAULT"]
+          node = []
+          for d in sorted(pkg_dirs):
+              own_lock = d in lock_dirs
+              if not own_lock and any(a in lock_dirs or a in ws_roots for a in ancestors(d)):
+                  continue  # member of a parent workspace / lockfile tree
+              pkg = read_json(f"{d}/package.json")
+              scripts = pkg.get("scripts") or {}
+              fns = files_by_dir[d]
+              pm = next((pm for l, pm in LOCKS.items() if l in fns), "npm")
+              lock = next((l for l in LOCKS if l in fns), "")
+              pin = ""
+              for cand in (d, "."):
+                  for f in (".nvmrc", ".node-version"):
+                      p = Path(cand, f)
+                      if p.is_file():
+                          pin = p.read_text().strip().lstrip("v")
+                          break
+                  if pin:
+                      break
+              version = pin if pin and pin[0].isdigit() else major_from_spec((pkg.get("engines") or {}).get("node", ""), node_default, int(node_default))
+              test = scripts.get("test", "")
+              has_test = bool(test) and "no test specified" not in test
+              node.append({
+                  "dir": d, "pm": pm,
+                  "lock": f"{d}/{lock}" if lock else "",
+                  "cache": pm if pm in ("npm", "yarn") and lock else "",
+                  "node": version,
+                  "lint": "lint" in scripts,
+                  "typecheck": "typecheck" in scripts or "type-check" in scripts,
+                  "typecheck_script": "typecheck" if "typecheck" in scripts else "type-check",
+                  "test": has_test,
+                  "build": "build" in scripts,
+              })
+
+          # ---------------- Python ----------------
+          py_default = os.environ["PY_DEFAULT"]
+          python = []
+          for d, fns in sorted(files_by_dir.items()):
+              reqs = sorted(f for f in fns if re.fullmatch(r"requirements([-_.][\w.-]+)?\.txt", f))
+              has_pp = "pyproject.toml" in fns
+              has_setup = "setup.py" in fns
+              if not (reqs or has_pp or has_setup):
+                  continue
+              installable, extras, requires = has_setup, [], ""
+              if has_pp:
+                  try:
+                      data = tomllib.loads(Path(d, "pyproject.toml").read_text(encoding="utf-8"))
+                  except Exception:
+                      data = {}
+                  proj = data.get("project") or {}
+                  poetry = (data.get("tool") or {}).get("poetry") or {}
+                  installable = installable or bool(proj) or bool(poetry)
+                  opt = proj.get("optional-dependencies") or {}
+                  extras = [e for e in ("dev", "test", "tests", "testing", "ci") if e in opt]
+                  requires = proj.get("requires-python", "")
+              if not installable and not reqs:
+                  continue  # tooling-only pyproject
+              pin = ""
+              for cand in (d, "."):
+                  p = Path(cand, ".python-version")
+                  if p.is_file():
+                      pin = p.read_text().strip().splitlines()[0]
+                      break
+              if not pin:
+                  m = re.search(r">=\s*3\.(\d+)", requires)
+                  pin = f"3.{max(int(m.group(1)), int(py_default.split('.')[1]))}" if m else py_default
+              tests = any(
+                  re.fullmatch(r"(test_.*|.*_test)\.py", f) or f == "conftest.py"
+                  for td, tf in files_by_dir.items() if td == d or td.startswith(d + "/") or d == "."
+                  for f in tf
+              )
+              deps = [f"{d}/{r}" for r in reqs] + ([f"{d}/pyproject.toml"] if has_pp else []) + ([f"{d}/setup.py"] if has_setup else [])
+              python.append({
+                  "dir": d, "python": pin, "reqs": " ".join(reqs),
+                  "installable": installable, "extras": ",".join(extras),
+                  "tests": tests, "deps": "\n".join(deps),
+              })
+
+          # ---------------- Go ----------------
+          go = [{"dir": d, "sum": "go.sum" in f} for d, f in sorted(files_by_dir.items()) if "go.mod" in f]
+
+          # ---------------- Terraform ----------------
+          terraform = []
+          for d, fns in sorted(files_by_dir.items()):
+              tfs = [f for f in fns if f.endswith(".tf")]
+              if not tfs:
+                  continue
+              version = "latest"
+              for f in tfs:
+                  m = re.search(r'required_version\s*=\s*"([^"]+)"', Path(d, f).read_text(encoding="utf-8", errors="ignore"))
+                  if m:
+                      version = m.group(1).replace("~>", "~").replace(",", " ")
+                      break
+              terraform.append({"dir": d, "version": version})
+
+          # ---------------- Docker / Helm ----------------
+          docker = [{"file": f"{d}/{f}", "dir": d}
+                    for d, fns in sorted(files_by_dir.items())
+                    for f in sorted(fns)
+                    if f == "Dockerfile" or f.startswith("Dockerfile.") or f.endswith(".Dockerfile")]
+          helm = [{"dir": d} for d, f in sorted(files_by_dir.items()) if "Chart.yaml" in f]
+
+          out = {"node": node, "python": python, "go": go, "terraform": terraform, "docker": docker, "helm": helm}
+          with open(os.environ["GITHUB_OUTPUT"], "a") as gh:
+              for k, v in out.items():
+                  gh.write(f"{k}={json.dumps(v, separators=(',', ':'))}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as s:
+              s.write("### Detected projects\n\n| Stack | Count | Paths |\n|---|---|---|\n")
+              for k, v in out.items():
+                  paths = ", ".join(f"`{i.get('file', i['dir'])}`" for i in v) or "—"
+                  s.write(f"| {k} | {len(v)} | {paths} |\n")
+          print(json.dumps(out, indent=2))
+
+  # -------------------------------------------------------------------------
+  node:
+    name: node (${{ matrix.unit.dir }})
+    needs: detect
+    if: needs.detect.outputs.node != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        unit: ${{ fromJSON(needs.detect.outputs.node) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.unit.dir }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.unit.node }}
+          cache: ${{ matrix.unit.cache }}
+          cache-dependency-path: ${{ matrix.unit.lock }}
+
+      - name: Enable package manager
+        if: matrix.unit.pm != 'npm'
+        run: |
+          corepack enable
+          if ! grep -q '"packageManager"' package.json; then
+            [ "${{ matrix.unit.pm }}" = pnpm ] && corepack prepare pnpm@9 --activate || true
+          fi
+          ${{ matrix.unit.pm }} --version
+
+      - name: Install dependencies
+        timeout-minutes: 15
+        run: |
+          case "${{ matrix.unit.pm }}" in
+            pnpm) pnpm install --frozen-lockfile ;;
+            yarn) if yarn --version | grep -q '^1\.'; then yarn install --frozen-lockfile --non-interactive; else yarn install --immutable; fi ;;
+            npm)  if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi ;;
+          esac
+
+      - name: Lint
+        if: matrix.unit.lint
+        continue-on-error: ${{ !inputs.strict }}
+        timeout-minutes: 10
+        run: ${{ matrix.unit.pm }} run lint
+
+      - name: Typecheck
+        if: matrix.unit.typecheck
+        timeout-minutes: 10
+        run: ${{ matrix.unit.pm }} run ${{ matrix.unit.typecheck_script }}
+
+      - name: Test
+        if: matrix.unit.test
+        timeout-minutes: 15
+        run: ${{ matrix.unit.pm }} run test
+
+      - name: Build
+        if: matrix.unit.build
+        timeout-minutes: 15
+        run: ${{ matrix.unit.pm }} run build
+
+  # -------------------------------------------------------------------------
+  python:
+    name: python (${{ matrix.unit.dir }})
+    needs: detect
+    if: needs.detect.outputs.python != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        unit: ${{ fromJSON(needs.detect.outputs.python) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.unit.dir }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.unit.python }}
+          cache: pip
+          cache-dependency-path: ${{ matrix.unit.deps }}
+
+      - name: Install dependencies
+        timeout-minutes: 15
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          source "$RUNNER_TEMP/venv/bin/activate"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+          python -m pip install -U pip wheel
+          for r in ${{ matrix.unit.reqs }}; do pip install -r "$r"; done
+          if [ "${{ matrix.unit.installable }}" = "true" ]; then
+            extras="${{ matrix.unit.extras }}"
+            if [ -n "$extras" ]; then pip install -e ".[${extras}]" || pip install ".[${extras}]"
+            else pip install -e . || pip install .
+            fi
+          fi
+          pip install pytest ruff
+
+      - name: Byte-compile (syntax check)
+        run: python -m compileall -q -x '(node_modules|\.venv|/venv/)' .
+
+      - name: Lint (ruff)
+        continue-on-error: ${{ !inputs.strict }}
+        run: ruff check --output-format=github .
+
+      - name: Test (pytest)
+        if: matrix.unit.tests
+        timeout-minutes: 15
+        run: |
+          set +e
+          python -m pytest -q -p no:cacheprovider
+          rc=$?
+          [ $rc -eq 5 ] && { echo "::notice::No tests collected in ${{ matrix.unit.dir }}"; exit 0; }
+          exit $rc
+
+  # -------------------------------------------------------------------------
+  go:
+    name: go (${{ matrix.unit.dir }})
+    needs: detect
+    if: needs.detect.outputs.go != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        unit: ${{ fromJSON(needs.detect.outputs.go) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.unit.dir }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ${{ matrix.unit.dir }}/go.mod
+          cache: ${{ matrix.unit.sum }}
+          cache-dependency-path: ${{ matrix.unit.dir }}/go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        continue-on-error: ${{ !inputs.strict }}
+        run: go vet ./...
+
+      - name: Test
+        timeout-minutes: 15
+        run: go test -race -count=1 ./...
+
+  # -------------------------------------------------------------------------
+  terraform:
+    name: terraform (${{ matrix.unit.dir }})
+    needs: detect
+    if: needs.detect.outputs.terraform != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        unit: ${{ fromJSON(needs.detect.outputs.terraform) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.unit.dir }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ matrix.unit.version }}
+          terraform_wrapper: false
+
+      - name: Format check
+        continue-on-error: ${{ !inputs.strict }}
+        run: terraform fmt -check -diff
+
+      - name: Init (no backend)
+        run: terraform init -backend=false -input=false -no-color
+
+      - name: Validate
+        run: terraform validate -no-color
+
+  # -------------------------------------------------------------------------
+  docker:
+    name: docker (${{ matrix.unit.file }})
+    needs: detect
+    if: inputs.run-docker && needs.detect.outputs.docker != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        unit: ${{ fromJSON(needs.detect.outputs.docker) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build image (no push)
+        env:
+          DOCKER_BUILDKIT: "1"
+          FILE: ${{ matrix.unit.file }}
+          DIR: ${{ matrix.unit.dir }}
+        run: |
+          # Try the Dockerfile's own directory as context first, then the repo root.
+          if docker build --pull -f "$FILE" -t ci-local:${{ github.run_id }} "$DIR"; then
+            echo "Built with context: $DIR"
+          elif [ "$DIR" != "." ]; then
+            echo "::notice::Retrying $FILE with repository root as build context"
+            docker build --pull -f "$FILE" -t ci-local:${{ github.run_id }} .
+          else
+            exit 1
+          fi
+
+  # -------------------------------------------------------------------------
+  helm:
+    name: helm (${{ matrix.unit.dir }})
+    needs: detect
+    if: needs.detect.outputs.helm != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        unit: ${{ fromJSON(needs.detect.outputs.helm) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Lint chart
+        run: |
+          helm dependency update "${{ matrix.unit.dir }}" || echo "::warning::helm dependency update failed"
+          helm lint "${{ matrix.unit.dir }}"
+
+  # -------------------------------------------------------------------------
+  security:
+    name: Security scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Secret scan (gitleaks) on changed commits
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          case "$EVENT" in
+            pull_request|pull_request_target) range="$PR_BASE..$PR_HEAD" ;;
+            push) if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="-1 $AFTER"; else range="$BEFORE..$AFTER"; fi ;;
+            *) range="-1 $AFTER" ;;
+          esac
+          cfg=""; [ -f .gitleaks.toml ] && cfg="--config /repo/.gitleaks.toml"
+          echo "Scanning commit range: $range"
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" -e HOME=/tmp \
+            ghcr.io/gitleaks/gitleaks:v8.24.2 \
+            git /repo --log-opts="$range" $cfg --redact --no-banner --exit-code 1 --verbose
+
+      - name: Dependency vulnerability scan (Trivy)
+        continue-on-error: ${{ !inputs.strict }}
+        run: |
+          docker run --rm -v "$PWD:/src" -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy:0.58.1 fs /src \
+            --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --skip-dirs /src/node_modules --exit-code 1 --no-progress
+
+  # -------------------------------------------------------------------------
+  gate:
+    name: CI Gate
+    if: always()
+    needs: [detect, node, python, go, terraform, docker, helm, security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "### CI Gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "$NEEDS" | jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' >> "$GITHUB_STEP_SUMMARY"
+          bad=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result=="failure" or .value.result=="cancelled") | .key] | join(", ")')
+          if [ -n "$bad" ]; then
+            echo "::error::CI Gate failed — blocking jobs did not pass: $bad"
+            exit 1
+          fi
+          echo "All blocking checks passed."

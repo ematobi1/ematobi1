@@ -1,0 +1,91 @@
+# ---------------------------------------------------------------------------
+# CI rollout bot — keeps every ematobi1 repository covered by PR Validation.
+#
+# Daily (and on demand) it walks every non-archived, non-fork repo owned by
+# ematobi1 and:
+#   1. Opens a PR adding .github/workflows/pr-validation.yml if it is missing
+#      (the PR validates itself before it can be merged).
+#   2. Once the workflow is on the default branch, applies the
+#      "Require CI Gate" ruleset so nothing merges to main without a green gate.
+#
+# Requires secret CI_ROLLOUT_TOKEN: a fine-grained PAT scoped to "All
+# repositories" with Contents, Pull requests, Workflows and Administration
+# set to Read and write.
+# ---------------------------------------------------------------------------
+name: CI rollout
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Report what would change without changing anything.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-rollout
+  cancel-in-progress: false
+
+jobs:
+  rollout:
+    name: Ensure PR Validation on all repos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Roll out
+        env:
+          GH_TOKEN: ${{ secrets.CI_ROLLOUT_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          DRY_RUN: ${{ inputs.dry-run || false }}
+          WF_PATH: .github/workflows/pr-validation.yml
+          BRANCH: ci/pr-validation
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Secret CI_ROLLOUT_TOKEN is not set. See header of this workflow."
+            exit 1
+          fi
+          template_b64=$(base64 -w0 .github/ci/pr-validation.yml)
+          summary="$GITHUB_STEP_SUMMARY"
+          printf '| Repo | Action |\n|---|---|\n' >> "$summary"
+          note() { echo "$1: $2"; printf '| %s | %s |\n' "$1" "$2" >> "$summary"; }
+          run() { if [ "$DRY_RUN" = "true" ]; then echo "  [dry-run] $*"; else "$@"; fi; }
+
+          gh api "user/repos?affiliation=owner&per_page=100" --paginate \
+            --jq '.[] | select(.archived|not) | select(.fork|not) | [.name, .default_branch, .size] | @tsv' |
+          while IFS=$'\t' read -r repo default size; do
+            full="$OWNER/$repo"
+            sha=$(gh api "repos/$full/git/ref/heads/$default" --jq .object.sha 2>/dev/null || true)
+            if [ -z "$sha" ]; then note "$repo" "skipped (empty repository)"; continue; fi
+
+            if gh api "repos/$full/contents/$WF_PATH?ref=$default" >/dev/null 2>&1; then
+              if gh api "repos/$full/rulesets" --jq '.[].name' 2>/dev/null | grep -qx "Require CI Gate"; then
+                note "$repo" "covered"
+              elif run gh api -X POST "repos/$full/rulesets" --input .github/ci/ruleset.json >/dev/null 2>&1; then
+                note "$repo" "ruleset applied"
+              else
+                note "$repo" "workflow present; ruleset not supported (private repo on free plan?)"
+              fi
+              continue
+            fi
+
+            if gh api "repos/$full/git/ref/heads/$BRANCH" >/dev/null 2>&1; then
+              note "$repo" "rollout PR already pending"; continue
+            fi
+            run gh api -X POST "repos/$full/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$sha" >/dev/null
+            run gh api -X PUT "repos/$full/contents/$WF_PATH" \
+              -f message="ci: add PR Validation pipeline" -f content="$template_b64" -f branch="$BRANCH" >/dev/null
+            run gh api -X POST "repos/$full/pulls" -f title="ci: add PR Validation pipeline" \
+              -f head="$BRANCH" -f base="$default" \
+              -f body="Adds the shared Ubuntu CI pipeline (build, test, typecheck, IaC validation, secret scan). Once merged, the \`Require CI Gate\` ruleset is applied so nothing reaches \`$default\` without a green **PR Validation / CI Gate** check." >/dev/null
+            note "$repo" "rollout PR opened"
+          done
