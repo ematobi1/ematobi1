@@ -68,8 +68,14 @@ jobs:
             if [ -z "$sha" ]; then note "$repo" "skipped (empty repository)"; continue; fi
 
             if gh api "repos/$full/contents/$WF_PATH?ref=$default" >/dev/null 2>&1; then
+              last=$(gh api "repos/$full/actions/workflows/pr-validation.yml/runs?branch=$default&event=push&status=completed&per_page=1" \
+                       --jq '.workflow_runs[0].conclusion // "none"' 2>/dev/null || echo none)
               if gh api "repos/$full/rulesets" --jq '.[].name' 2>/dev/null | grep -qx "Require CI Gate"; then
-                note "$repo" "covered"
+                note "$repo" "covered (default branch: $last)"
+              elif [ "$last" != "success" ]; then
+                # Enforce only once the default branch is green, so existing
+                # defects can still be fixed incrementally.
+                note "$repo" "workflow present; default branch is '$last' — ruleset deferred until green"
               elif run gh api -X POST "repos/$full/rulesets" --input .github/ci/ruleset.json >/dev/null 2>&1; then
                 note "$repo" "ruleset applied"
               else
