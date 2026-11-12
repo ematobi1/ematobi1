@@ -6,8 +6,13 @@
   <a href="https://zerodowntobi.online">Portfolio</a> · <a href="https://linkedin.com/in/emmanuel-t-52a040118">LinkedIn</a> · <a href="mailto:emma.tobi1@gmail.com">Email</a>
 </p>
 
-Senior DevOps / DevSecOps Engineer with 10+ years in infrastructure and IT operations, including 7+ years hands-on DevOps, building secure, compliant, highly automated multi-cloud platforms. Currently at ClearDATA (a Harris Computer company), hardening healthcare cloud workloads across AWS, Azure, and GCP. Based in Alpharetta, GA.
-
+Senior DevOps, DevSecOps, and Site Reliability (SRE) Engineer with 10+ years building, securing, and scaling multi-cloud 
+production infrastructure on AWS, Azure, and GCP. Leads 6 engineers across 2 squads delivering infrastructure as code 
+(Terraform, Ansible, AWS CDK), GitOps with ArgoCD and Helm on Amazon EKS, CI/CD with built-in SAST, SCA, and image scanning, 
+and SLO-driven observability (Prometheus, Grafana, Datadog). Increased deployment frequency 6x, cut change failure rate from 
+15% to 7% and MTTR by 67%, maintained 99.95% uptime against a 99.9% SLO, and reduced cloud costs 12% annually. Enforces 
+HIPAA and HITRUST compliance with policy-as-code (OPA, AWS Config), raising control pass rate to 94%, and builds secure 
+platforms and human-in-the-loop AI agents (MCP, LangGraph) that improve developer experience.
 ---
 <p align="center">
   <img src="https://skillicons.dev/icons?i=aws,azure,gcp,kubernetes,docker,terraform,githubactions,python,go,nodejs,postgres,linux&perline=6" alt="Skill icons">
