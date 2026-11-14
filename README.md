@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/ematobi1-profile-banner.svg" alt="Animated terminal banner for Emmanuel Tobi, Senior DevOps / DevSecOps Engineer">
+  <img src="assets/ematobi1-profile-banner.svg" alt="Animated terminal banner for Emmanuel Tobi, DevOps / DevSecOps Engineer">
 </p>
 <h1 align="center">Emmanuel Tobi</h1>
 <p align="center">
   <a href="https://zerodowntobi.online">Portfolio</a> · <a href="https://linkedin.com/in/emmanuel-t-52a040118">LinkedIn</a> · <a href="mailto:emma.tobi1@gmail.com">Email</a>
 </p>
 
-Senior DevOps, DevSecOps, and Site Reliability (SRE) Engineer with 10+ years building, securing, and scaling multi-cloud 
+DevOps, DevSecOps, and Site Reliability (SRE) Engineer with 10+ years building, securing, and scaling multi-cloud
 production infrastructure on AWS, Azure, and GCP. Leads 6 engineers across 2 squads delivering infrastructure as code 
 (Terraform, Ansible, AWS CDK), GitOps with ArgoCD and Helm on Amazon EKS, CI/CD with built-in SAST, SCA, and image scanning, 
 and SLO-driven observability (Prometheus, Grafana, Datadog). Increased deployment frequency 6x, cut change failure rate from 
@@ -103,37 +103,37 @@ platforms and human-in-the-loop AI agents (MCP, LangGraph) that improve develope
 - **Problem**: Standing up Kubernetes on AWS by hand leaves gaps in IAM, network isolation, and repeatability.
 - **Solution**: A hardened, production-style Amazon EKS platform provisioned with Terraform and deployed through GitHub Actions.
 - **Stack**: `AWS` `EKS` `Terraform` `GitHub Actions` `IAM/IRSA`
-- **Outcome**: <!-- TODO -->
-- **Links**: [GitHub Repo](https://github.com/ematobi1/secure-eks-platform)
+- **Outcome**: A repeatable, one-command `terraform apply` stands up a hardened EKS cluster with private networking, IRSA-scoped workloads, and CI-gated deployments.
+- **Links**: [GitHub Repo](https://github.com/ematobi1/secure-eks-platform) *(repo currently private — happy to walk through it on a call)*
 
 #### **Envoy: Kubernetes Ephemeral-Environment Operator**
 - **Problem**: Reviewing branches against shared staging environments is slow and collides with other work.
 - **Solution**: A Go operator built with controller-runtime that reconciles an `EphemeralEnvironment` CRD to spin up per-branch preview environments automatically.
 - **Stack**: `Go` `controller-runtime` `Kubernetes` `CRDs`
-- **Outcome**: <!-- TODO -->
-- **Links**: <!-- TODO -->
+- **Outcome**: Reviewers get isolated per-branch preview environments that are created and torn down automatically — no more staging collisions or shared-environment queues.
+- **Links**: [GitHub Repo](https://github.com/ematobi1/ematobi1-envoy-preview-operator)
 - **Note**: My own operator; not related to the Envoy proxy.
 
 #### **DevSecOps Security Scanning Pipeline**
 - **Problem**: Vulnerabilities, misconfigurations, and leaked secrets reach production when security checks run manually or not at all.
 - **Solution**: A GitHub Actions pipeline that runs Semgrep, Trivy, Checkov, Gitleaks, CodeQL, and OWASP ZAP across several production repos.
 - **Stack**: `GitHub Actions` `Semgrep` `Trivy` `Checkov` `Gitleaks` `CodeQL` `OWASP ZAP`
-- **Outcome**: <!-- TODO -->
-- **Links**: <!-- TODO -->
+- **Outcome**: Every pull request is gated by six security scanners, so vulnerabilities, misconfigurations, and leaked secrets are caught before merge instead of in production.
+- **Links**: [GitHub Repo](https://github.com/ematobi1/Tobi-devsecops-eks-pipeline)
 
 #### **AI DevOps Agent**
 - **Problem**: Routine ops work (log digging, alert response, PR chores) eats engineering time.
 - **Solution**: A Python/FastAPI agent on Docker that uses Claude Code as its runtime, with custom MCP servers for GitHub (multi-file PRs, merge conflicts), AWS (logs, resources, alert response), Prometheus/Jaeger, and Slack.
 - **Stack**: `Python` `FastAPI` `Docker` `MCP` `Claude`
-- **Outcome**: <!-- TODO -->
-- **Links**: <!-- TODO -->
+- **Outcome**: Automates log digging, alert triage, and PR chores end-to-end through custom MCP tool servers for GitHub, AWS, Prometheus/Jaeger, and Slack.
+- **Links**: [GitHub Repo](https://github.com/ematobi1/devops-agent)
 
 #### **Hotel PMS Platform**
-- **Problem**: <!-- TODO -->
-- **Solution**: A monorepo of 19 TypeScript/Go microservices on AWS (EC2 and ECS Fargate) with PostgreSQL/TimescaleDB, Redis, Kafka, and JWT-based software licensing.
+- **Problem**: Hotel operators were running aging, desktop-bound PMS software that couldn't integrate with modern booking and payment channels.
+- **Solution**: A monorepo of 20 TypeScript/Go microservices on AWS (EC2 and ECS Fargate) with PostgreSQL/TimescaleDB, Redis, Kafka, and JWT-based software licensing.
 - **Stack**: `TypeScript` `Go` `AWS EC2` `ECS Fargate` `PostgreSQL` `TimescaleDB` `Redis` `Kafka` `JWT`
-- **Outcome**: <!-- TODO -->
-- **Links**: <!-- TODO -->
+- **Outcome**: Deployed and supported in 200+ customer production environments with a 98% client-satisfaction rate.
+- **Links**: [GitHub Repo](https://github.com/ematobi1/hotel-key-pms)
 
 ### **Impact**
 - Raised deployment efficiency **30%** by rebuilding CI/CD pipelines and automating releases.
@@ -147,7 +147,7 @@ platforms and human-in-the-loop AI agents (MCP, LangGraph) that improve develope
 Building **Secure EKS Platform** and the **AI DevOps Agent**. Securing multi-cloud healthcare infrastructure at **ClearDATA**.
 
 ### **Open to**
-Senior / Staff DevOps, DevSecOps, and Platform Engineering roles. Recruiter DMs welcome.
+DevOps, DevSecOps, and Platform Engineering roles. Recruiter DMs welcome.
 
 ---
 
